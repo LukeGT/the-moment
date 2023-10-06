@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 import dataclasses
 
 from lib import schema
@@ -37,32 +39,52 @@ class CampaignGenerator:
     self.characters = openai.create_characters(self.theme, self.overview, CHARACTER_NUM)
     return self.characters
 
-  def display(self):
-    from IPython.display import display, Markdown
+  def create_encounters(self):
+    if self.overview is None:
+      raise ValueError('No overview found')
+    if self.locations is None:
+      raise ValueError('No locations found')
+    if any(location.encounters for location in self.locations):
+      raise ValueError('Encounters already defined.')
 
-    def join_lines(lines):
+    locations = openai.create_encounters(self.theme, self.overview, self.locations)
+    for location, location_with_encounters in zip(self.locations, locations):
+      if location.name != location_with_encounters.name:
+        print('Name mismatch:', location, location_with_encounters)
+      location.encounters = location_with_encounters.encounters
+
+    return locations
+
+  def create_actions(self, location_index: int, encounter_index: int):
+    if self.overview is None:
+      raise ValueError('No overview found')
+    if self.locations is None:
+      raise ValueError('No locations found')
+
+    location = self.locations[location_index]
+
+    if not location.encounters:
+      raise ValueError('No encounters found.')
+
+    encounter = location.encounters[encounter_index]
+
+    actions = openai.create_actions(self.theme, self.overview, location, encounter)
+    encounter.actions = actions
+    return actions
+
+  def display(self):
+    from IPython.display import display
+    from IPython.core.display import Markdown
+
+    def join_lines(lines: Iterable[str]):
       return '\n'.join(lines)
 
     assert self.overview is not None
-    assert self.locations is not None
-    assert self.characters is not None
 
-    display(Markdown(f'''
-# {self.overview.name}
-
-{self.overview.description}
-
-## Locations
-
-{join_lines(
-    f'- **{location.name}**: {location.description}'
-    for location in self.locations
-)}
-
-## Characters
-
-{join_lines(
-    f'- **{character.name}** - {character.title}: <ins>{character.strength or ""}</ins> <del>{character.weakness or ""}</del> {character.description}'
-    for character in self.characters
-)}
-    '''))
+    markdown_paragraphs = self.overview.to_markdown() + [
+        '## Locations',
+        join_lines(location.to_markdown() for location in self.locations or []),
+        '## Characters',
+        join_lines(character.to_markdown() for character in self.characters or []),
+    ]
+    display(Markdown('\n\n'.join(markdown_paragraphs)))
