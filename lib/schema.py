@@ -2,6 +2,7 @@ from typing import Optional
 
 import dataclasses
 import enum
+import pydantic
 import textwrap
 
 
@@ -17,19 +18,19 @@ class Difficulty(str, enum.Enum):
   HARD = 'hard'
 
 
-@dataclasses.dataclass
-class Character:
+class Character(pydantic.BaseModel):
   name: str
   title: str
   description: str
-  strength: Attribute | None = None
-  weakness: Attribute | None = None
+  backstory: str
+  strength: Attribute | None
+  weakness: Attribute | None
 
   def to_markdown(self) -> str:
     return (
         f'- **{self.name}** - {self.title}: '
         f'<ins>{self.strength or ""}</ins> <del>{self.weakness or ""}</del> '
-        f'{self.description}'
+        f'{self.description} {self.backstory}'
     )
 
 
@@ -55,10 +56,19 @@ class Action:
     ])
 
 
-@dataclasses.dataclass
-class Encounter:
+class CharacterChoice(pydantic.BaseModel):
+  description: str
+  attribute: Attribute
+  outcome: str
+  # next: 'LevelUp | None' = None
+
+
+class Event(pydantic.BaseModel):
   name: str
   description: str
+
+
+class Encounter(Event):
   difficulty: Difficulty
   actions: list[Action] | None = None
 
@@ -69,6 +79,10 @@ class Encounter:
     )
     bullet = f'- **{self.name}** ({self.difficulty}): {self.description}'
     return f'{bullet}\n{action_bullets}'
+
+
+class LevelUp(Event):
+  choices: list[CharacterChoice] | None
 
 
 @dataclasses.dataclass

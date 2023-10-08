@@ -33,14 +33,41 @@ def prompt_set_the_stage(theme: str):
 
 def prompt_characters(character_num: int):
   return user_message(
-      f'Please list the {character_num} heroes of this story, with their names '
-      'and a one sentence bio describing their skills and background story. '
-      'Give each character an optional strength and weakness, selected from '
-      'the following options '
-      'in roughly equal amounts: "mental", "physical", "emotional", or "null". '
-      'Give each character a "title", a single word describing them. '
-      f'Format it as a list of {serialisation.DESCRIPTION} objects with the '
-      'properties "name", "title", "description", "strength" and "weakness". '
+      f"Please list the {character_num} hero{'es' if character_num > 1 else ''}"
+      ' of this story. Give each of them a "name" and a "title", a single word '
+      'describing them. '
+      'Give a one sentence "description" which details their appearance and '
+      'skills. '
+      'Also give one sentence which introduces the beginnings of a backstory '
+      'which will be later developed. This should be some event in the '
+      "character's past or a core belief that they are challenged and shaped "
+      'by, but yet to be resolved. '
+      'Give each a "strength" and "weakness", selected from the following '
+      'options in roughly equal amounts: "mental", "physical", "emotional", or '
+      'null. '
+  )
+
+
+def prompt_character_levelup_1():
+  return user_message(
+      'This character is now suddenly faced with an event relevant to their '
+      'backstory, where they are presented with an important choice that '
+      'changes the way they perceive their past, but still leaves them room to '
+      'grow. Write a 3 sentence "description" of how this event arises, spoken '
+      'in the second person, and do not elaborate on how the hero responds to '
+      'the event here. When referring to important people or places, give them '
+      'specific names. '
+      'Give this event a two word "name". '
+      'Also create a list of three "choices" that they can make in response to '
+      'the event. '
+      'Each choice will channel a specific "attribute", either "mental", '
+      '"physical" or "emotional", which shapes the choice. '
+      'Give each choice a "description", a single sentence spoken in the '
+      'imperative second person which describes a potential choice for the '
+      'hero, but does not describe how it resolves here. '
+      'For each choice, provide a two sentence "outcome" which details '
+      'how the hero\'s choice plays out and reshapes their perception of their '
+      'backstory.'
   )
 
 
@@ -76,11 +103,11 @@ def prompt_create_actions():
       'For the encounter above, outline three diverse potential actions that '
       'the heroes might try to take in order to overcome the challenge. Just '
       'describe the intended action, not the outcome. Use a single sentence '
-      'for each, and be sure to speak in the plural second person. '
+      'for each, and be sure to speak in the imperative plural second person. '
       'Label each action with the given "attribute" that best matches it, '
       'which can be "emotional", "physical" or "mental". Don\'t explicitly '
       'call out this attribute in the descriptions. '
-      'Please also rate each action\'s difficulty based on its likelihood of '
+      "Please also rate each action's difficulty based on its likelihood of "
       'working in the given encounter. Difficulty can be "easy", "medium" or '
       '"hard". '
       'Try to make all the attributes and difficulties for each action '
@@ -88,7 +115,7 @@ def prompt_create_actions():
       'For each action, spend two sentences describing two possible outcomes of '
       'that action, one where the heroes are successful and another where they '
       'fail. The outcomes should neatly conclude the narrative that began in '
-      'the encounter\'s description. '
+      "the encounter's description. "
       f'Format your response as a list of {serialisation.DESCRIPTION} objects '
       'with "description", "attribute", "difficulty", "success" and "failure" '
       'attributes.'
@@ -105,6 +132,24 @@ def get_response(messages: list[dict[str, str]]):
   return completion['choices'][0]['message']['content']  # type: ignore
 
 
+def get_structured_response(messages: list[dict[str, str]], schema: Mapping[str, Any]):
+  print('Sending:', messages)
+  completion = openai.ChatCompletion.create(
+      model='gpt-3.5-turbo',
+      messages=messages,
+      functions=[{
+          'name': 'respond',
+          'description': 'Provide the requested information.',
+          'parameters': {'type': 'object', 'properties': {'value': schema}},
+      }],
+      function_call={'name': 'respond'},
+  )
+  print(completion)
+  json_args = completion['choices'][0]['message']['function_call']['arguments']  # type: ignore
+  parsed_args = serialisation.deserialise(json_args, dict[str, Any])
+  return parsed_args['value']
+
+
 def create_overview(theme: str) -> schema.Overview:
   response = get_response([prompt_set_the_stage(theme)])
   overview_json = serialisation.deserialise(response, dict[str, str])
@@ -114,13 +159,34 @@ def create_overview(theme: str) -> schema.Overview:
 def create_characters(
     theme: str, overview: schema.Overview, character_num: int
 ) -> list[schema.Character]:
-  response = get_response([
-      prompt_set_the_stage(theme),
-      assistant_message(overview),
-      prompt_characters(character_num),
-  ])
-  characters_json = serialisation.deserialise(response, list[dict[str, Any]])
-  return [schema.Character(**character_json) for character_json in characters_json]
+  characters = get_structured_response(
+      [
+          prompt_set_the_stage(theme),
+          assistant_message(overview),
+          prompt_characters(character_num),
+      ],
+      {
+          'type': 'array',
+          'items': schema.Character.model_json_schema(),
+      },
+  )
+  return [schema.Character(**character) for character in characters]
+
+
+def create_character_levelup_1(
+    theme: str, overview: schema.Overview, character: schema.Character
+) -> schema.LevelUp:
+  level_up = get_structured_response(
+      [
+          prompt_set_the_stage(theme),
+          assistant_message(overview),
+          prompt_characters(1),
+          assistant_message(character),
+          prompt_character_levelup_1(),
+      ],
+      schema.LevelUp.model_json_schema(),
+  )
+  return schema.LevelUp.model_validate(level_up)
 
 
 def create_locations(

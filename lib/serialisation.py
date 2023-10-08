@@ -2,6 +2,7 @@ from typing import Any, Type, TypeVar
 
 import dataclasses
 import json
+import pydantic
 
 SerializedData = (
     dict[str, 'SerializedData'] | list['SerializedData'] | int | float | str
@@ -19,9 +20,10 @@ class DataclassEncoder(json.JSONEncoder):
 
 
 def serialise(data: Any) -> str:
-  if not isinstance(data, str):
-    data = json.dumps(data, cls=DataclassEncoder)
-  return data
+  if isinstance(data, pydantic.BaseModel):
+    return data.json()
+  elif not isinstance(data, str):
+    return json.dumps(data, cls=DataclassEncoder)
 
 
 OuterType = TypeVar('OuterType')
@@ -34,7 +36,7 @@ def deserialise(string: str, outer_type: Type[OuterType]) -> OuterType:
   try:
     return json.loads(string)
   except:
-    print(f'Failed to parse YAML from AI:\n{string}\nEOF')
+    print(f'Failed to parse {DESCRIPTION} from AI:\n{string}\nEOF')
     raise
 
 
